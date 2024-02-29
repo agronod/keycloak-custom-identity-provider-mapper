@@ -166,9 +166,13 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
 
             try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
                 String userId = context.getId();
+                String sessionAuthenticatedUserId = context.getAuthenticationSession().getAuthenticatedUser().getId();
+
+                logger.info("preprocessFederatedIdentity: userId" + userId);
+                logger.info("preprocessFederatedIdentity: sessionAuthenticatedUserId" + sessionAuthenticatedUserId);
 
                 UserInfo userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
-                logger.info("Fetched user Info name: " + userInfo.name);
+                logger.info("Fetched anvandare name: " + userInfo.name);
 
                 if (attribute.equalsIgnoreCase(EMAIL)) {
                     userInfo.email = attributeValuesInContext.get(0);
@@ -177,7 +181,7 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
                 } else if (attribute.equalsIgnoreCase(SSN)) {
                     userInfo.ssn = attributeValuesInContext.get(0);
                 }
-                this.databaseAccess.updateUserInfo(conn, userId, userInfo);
+                // this.databaseAccess.updateUserInfo(conn, userId, userInfo);
 
             } catch (Exception e) {
                 logger.error("preprocess broker user - failed", e, null, e);
@@ -233,8 +237,10 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
         try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
             String userId = user.getId();
 
+            logger.info("updateBrokeredUser: userId" + userId);
+
             UserInfo userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
-            logger.info("Fetched user Info name: " + userInfo.name);
+            logger.info("Fetched anvandare name: " + userInfo.name);
 
             String attributeName = getAttributeNameFromMapperModel(mapperModel);
             List<String> attributeValuesInContext = findAttributeValuesInContext(attributeName, context);
@@ -269,7 +275,10 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
                 } else if (attribute.equalsIgnoreCase(SSN)) {
                     userInfo.ssn = updatedAttributeValues.get(0);
                 }
-                this.databaseAccess.updateUserInfo(conn, userId, userInfo);
+                // this.databaseAccess.updateUserInfo(conn, userId, userInfo);
+                logger.info("updateBrokeredUser: update user to AK: " + userInfo.agronodkontoId + " SSN: "
+                        + userInfo.ssn + " EMAIL: "
+                        + userInfo.email + " NAME: " + userInfo.name);
             }
 
         } catch (Exception e) {
