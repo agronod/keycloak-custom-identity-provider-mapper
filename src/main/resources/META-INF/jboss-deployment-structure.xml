@@ -8,8 +8,6 @@
             <module name="org.keycloak.keycloak-server-spi-private"/>
             <module name="org.keycloak.keycloak-saml-core"/>            
             <module name="org.keycloak.keycloak-saml-core-public"/>   
-            <module name="keycloak-saml-adapter-core"/>   
-            <module name="keycloak-saml-adapter-api-public"/>   
         </dependencies>
     </deployment>
 </jboss-deployment-structure>
