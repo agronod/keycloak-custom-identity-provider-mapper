@@ -5,6 +5,7 @@ import org.keycloak.broker.provider.AbstractIdentityProviderMapper;
 import org.keycloak.broker.provider.BrokeredIdentityContext;
 import org.keycloak.broker.saml.SAMLEndpoint;
 import org.keycloak.broker.saml.SAMLIdentityProviderFactory;
+import org.keycloak.common.util.CollectionUtil;
 import org.keycloak.dom.saml.v2.assertion.AssertionType;
 import org.keycloak.dom.saml.v2.assertion.AttributeStatementType;
 import org.keycloak.dom.saml.v2.assertion.AttributeType;
@@ -20,19 +21,18 @@ import org.keycloak.protocol.saml.mappers.SamlMetadataDescriptorUpdater;
 import org.keycloak.provider.ProviderConfigProperty;
 import org.keycloak.saml.common.constants.JBossSAMLURIConstants;
 import org.keycloak.saml.common.util.StringUtil;
-import org.keycloak.common.util.CollectionUtil;
 
-import java.util.Objects;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import static org.keycloak.saml.common.constants.JBossSAMLURIConstants.ATTRIBUTE_FORMAT_BASIC;
+// import static org.keycloak.saml.common.constants.JBossSAMLURIConstants.ATTRIBUTE_FORMAT_BASIC;
 
 // To configure this in Terraform.
 // https://registry.terraform.io/providers/mrparkers/keycloak/latest/docs/resources/generic_protocol_mapper
@@ -189,34 +189,6 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
         }
     }
 
-    private String getAttributeNameFromMapperModel(IdentityProviderMapperModel mapperModel) {
-        String attributeName = mapperModel.getConfig().get(ATTRIBUTE_NAME);
-        if (attributeName == null) {
-            attributeName = mapperModel.getConfig().get(ATTRIBUTE_FRIENDLY_NAME);
-        }
-        return attributeName;
-    }
-
-    private Predicate<AttributeStatementType.ASTChoiceType> elementWith(String attributeName) {
-        return attributeType -> {
-            AttributeType attribute = attributeType.getAttribute();
-            return Objects.equals(attribute.getName(), attributeName)
-                    || Objects.equals(attribute.getFriendlyName(), attributeName);
-        };
-    }
-
-    private List<String> findAttributeValuesInContext(String attributeName, BrokeredIdentityContext context) {
-        AssertionType assertion = (AssertionType) context.getContextData().get(SAMLEndpoint.SAML_ASSERTION);
-
-        return assertion.getAttributeStatements().stream()
-                .flatMap(statement -> statement.getAttributes().stream())
-                .filter(elementWith(attributeName))
-                .flatMap(attributeType -> attributeType.getAttribute().getAttributeValue().stream())
-                .filter(Objects::nonNull)
-                .map(Object::toString)
-                .collect(Collectors.toList());
-    }
-
     @Override
     public void updateBrokeredUser(KeycloakSession session, RealmModel realm, UserModel user,
             IdentityProviderMapperModel mapperModel, BrokeredIdentityContext context) {
@@ -299,12 +271,10 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
 
         RequestedAttributeType requestedAttribute = new RequestedAttributeType(attributeName);
         requestedAttribute.setIsRequired(null);
-        requestedAttribute
-                .setNameFormat(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT) != null
-                        ? JBossSAMLURIConstants
-                                .valueOf(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT))
-                                .get()
-                        : ATTRIBUTE_FORMAT_BASIC.get());
+        requestedAttribute.setNameFormat(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT) != null
+                ? JBossSAMLURIConstants.valueOf(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT))
+                        .get()
+                : JBossSAMLURIConstants.ATTRIBUTE_FORMAT_BASIC.get());
 
         if (attributeFriendlyName != null && attributeFriendlyName.length() > 0)
             requestedAttribute.setFriendlyName(attributeFriendlyName);
@@ -327,4 +297,33 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
 
         }
     }
+
+    private String getAttributeNameFromMapperModel(IdentityProviderMapperModel mapperModel) {
+        String attributeName = mapperModel.getConfig().get(ATTRIBUTE_NAME);
+        if (attributeName == null) {
+            attributeName = mapperModel.getConfig().get(ATTRIBUTE_FRIENDLY_NAME);
+        }
+        return attributeName;
+    }
+
+    private Predicate<AttributeStatementType.ASTChoiceType> elementWith(String attributeName) {
+        return attributeType -> {
+            AttributeType attribute = attributeType.getAttribute();
+            return Objects.equals(attribute.getName(), attributeName)
+                    || Objects.equals(attribute.getFriendlyName(), attributeName);
+        };
+    }
+
+    private List<String> findAttributeValuesInContext(String attributeName, BrokeredIdentityContext context) {
+        AssertionType assertion = (AssertionType) context.getContextData().get(SAMLEndpoint.SAML_ASSERTION);
+
+        return assertion.getAttributeStatements().stream()
+                .flatMap(statement -> statement.getAttributes().stream())
+                .filter(elementWith(attributeName))
+                .flatMap(attributeType -> attributeType.getAttribute().getAttributeValue().stream())
+                .filter(Objects::nonNull)
+                .map(Object::toString)
+                .collect(Collectors.toList());
+    }
+
 }
