@@ -166,10 +166,10 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
 
             try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
                 String userId = context.getId();
-                String sessionAuthenticatedUserId = context.getAuthenticationSession().getAuthenticatedUser().getId();
+                // String sessionAuthenticatedUserId = context.getAuthenticationSession().getAuthenticatedUser().getId();
 
                 logger.info("preprocessFederatedIdentity: userId" + userId);
-                logger.info("preprocessFederatedIdentity: sessionAuthenticatedUserId" + sessionAuthenticatedUserId);
+                // logger.info("preprocessFederatedIdentity: sessionAuthenticatedUserId" + sessionAuthenticatedUserId);
 
                 UserInfo userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
                 logger.info("Fetched anvandare name: " + userInfo.name);
