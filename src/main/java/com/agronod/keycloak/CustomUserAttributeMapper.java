@@ -165,11 +165,16 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
             }
 
             try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
-                String userId = context.getId();
-                // String sessionAuthenticatedUserId = context.getAuthenticationSession().getAuthenticatedUser().getId();
+                String userId = context.getId(); // username
+                // String sessionAuthenticatedUserId =
+                // context.getAuthenticationSession().getAuthenticatedUser().getId();
 
-                logger.info("preprocessFederatedIdentity: userId" + userId);
-                // logger.info("preprocessFederatedIdentity: sessionAuthenticatedUserId" + sessionAuthenticatedUserId);
+                logger.info("preprocessFederatedIdentity: username " + userId);
+                logger.info("preprocessFederatedIdentity: LegacyId " + context.getLegacyId());
+                logger.info("preprocessFederatedIdentity: BrokerUserId " + context.getBrokerUserId());
+                logger.info("preprocessFederatedIdentity: UserAttribute id " + context.getUserAttribute("id"));
+                // logger.info("preprocessFederatedIdentity: sessionAuthenticatedUserId" +
+                // sessionAuthenticatedUserId);
 
                 UserInfo userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
                 logger.info("Fetched anvandare name: " + userInfo.name);
@@ -271,10 +276,12 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
 
         RequestedAttributeType requestedAttribute = new RequestedAttributeType(attributeName);
         requestedAttribute.setIsRequired(null);
-        requestedAttribute.setNameFormat(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT) != null
-                ? JBossSAMLURIConstants.valueOf(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT))
-                        .get()
-                : JBossSAMLURIConstants.ATTRIBUTE_FORMAT_BASIC.get());
+        requestedAttribute
+                .setNameFormat(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT) != null
+                        ? JBossSAMLURIConstants
+                                .valueOf(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT))
+                                .get()
+                        : JBossSAMLURIConstants.ATTRIBUTE_FORMAT_BASIC.get());
 
         if (attributeFriendlyName != null && attributeFriendlyName.length() > 0)
             requestedAttribute.setFriendlyName(attributeFriendlyName);
