@@ -167,7 +167,7 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
             }
 
             try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
-                String userId = context.getId(); // username
+                String brokerUserId = context.getId(); // username in Keycloak
 
                 // All this to load the user Id...
                 IdentityProviderModel identityProviderConfig = context.getIdpConfig();
@@ -176,109 +176,108 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
                         context.getUsername(), context.getToken());
                 UserModel user = session.users().getUserByFederatedIdentity(realm, federatedIdentityModel);
 
-                UserModel user2 = session.users().getUserById(realm,userId);
+                Anvandare userInfo = null;
 
                 if (user != null) {
-                    logger.info("preprocessFederatedIdentity: user Id " + user.getId());
+                    logger.info("preprocessFederatedIdentity: anvandare externtId " + user.getId());
+                    // Fetch if anvandare is fully created from our app
+                    userInfo = this.databaseAccess.fetchAnvandare(conn, user.getId());
                 } else {
-                    logger.info("preprocessFederatedIdentity: user Id is NULL");
+                    logger.info("preprocessFederatedIdentity: brokerId " + brokerUserId);
+                    // Fetch with brokerId. If we already created anvandare but not yet fully
+                    // created it from our app (then uses brokerId as temporary externalId)
+                    userInfo = this.databaseAccess.fetchAnvandare(conn, brokerUserId);
+                    if(userInfo.Id == null){
+                        userInfo = new Anvandare("", "", "", brokerUserId, null, null);
+                    }
                 }
 
-                if (user2 != null) {
-                    logger.info("preprocessFederatedIdentity: user2 Id " + user2.getId());
-                } else {
-                    logger.info("preprocessFederatedIdentity: user2 Id is NULL");
-                }
+                logger.info("Fetched anvandare externtId: " + userInfo.externtId);
 
-                logger.info("preprocessFederatedIdentity: username " + userId);
-                logger.info("preprocessFederatedIdentity: BrokerUserId " + context.getBrokerUserId());
-
-                UserInfo userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
-                logger.info("Fetched anvandare name: " + userInfo.name);
-
-                if (attribute.equalsIgnoreCase(EMAIL)) {
-                    userInfo.email = attributeValuesInContext.get(0);
-                } else if (attribute.equalsIgnoreCase(NAME)) {
-                    userInfo.name = attributeValuesInContext.get(0);
-                } else if (attribute.equalsIgnoreCase(SSN)) {
+                boolean changedData = false;
+                if (attribute.equalsIgnoreCase("SSN") && !userInfo.ssn.equalsIgnoreCase(attributeValuesInContext.get(0))) {
                     userInfo.ssn = attributeValuesInContext.get(0);
+                    changedData = true;
                 }
-                // this.databaseAccess.updateUserInfo(conn, userId, userInfo);
 
+                if (changedData == true) {
+                    // Create or update anvandare
+                    this.databaseAccess.updateOrCreateAnvandare(conn, userInfo);
+                }                
             } catch (Exception e) {
                 logger.error("preprocess broker user - failed", e, null, e);
             }
         }
     }
 
-    @Override
-    public void updateBrokeredUser(KeycloakSession session, RealmModel realm, UserModel user,
-            IdentityProviderMapperModel mapperModel, BrokeredIdentityContext context) {
+    // @Override
+    // public void updateBrokeredUser(KeycloakSession session, RealmModel realm, UserModel user,
+    //         IdentityProviderMapperModel mapperModel, BrokeredIdentityContext context) {
 
-        String connectionString = mapperModel.getConfig().get("connectionstring");
-        String maxPoolSize = mapperModel.getConfig().get("maxPoolSize");
-        try {
-            // Set correct driver
-            Class.forName("org.postgresql.Driver");
-        } catch (ClassNotFoundException e) {
-        }
+    //     String connectionString = mapperModel.getConfig().get("connectionstring");
+    //     String maxPoolSize = mapperModel.getConfig().get("maxPoolSize");
+    //     try {
+    //         // Set correct driver
+    //         Class.forName("org.postgresql.Driver");
+    //     } catch (ClassNotFoundException e) {
+    //     }
 
-        String attribute = mapperModel.getConfig().get(USER_ATTRIBUTE);
-        if (StringUtil.isNullOrEmpty(attribute)) {
-            return;
-        }
+    //     String attribute = mapperModel.getConfig().get(USER_ATTRIBUTE);
+    //     if (StringUtil.isNullOrEmpty(attribute)) {
+    //         return;
+    //     }
 
-        try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
-            String userId = user.getId();
+    //     try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
+    //         String userId = user.getId();
 
-            logger.info("updateBrokeredUser: userId" + userId);
+    //         logger.info("updateBrokeredUser: userId" + userId);
 
-            UserInfo userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
-            logger.info("Fetched anvandare name: " + userInfo.name);
+    //         Anvandare userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
+    //         logger.info("Fetched anvandare name: " + userInfo.name);
 
-            String attributeName = getAttributeNameFromMapperModel(mapperModel);
-            List<String> attributeValuesInContext = findAttributeValuesInContext(attributeName, context);
+    //         String attributeName = getAttributeNameFromMapperModel(mapperModel);
+    //         List<String> attributeValuesInContext = findAttributeValuesInContext(attributeName, context);
 
-            List<String> currentAttributeValues = new ArrayList<String>();
-            List<String> updatedAttributeValues = new ArrayList<String>();
+    //         List<String> currentAttributeValues = new ArrayList<String>();
+    //         List<String> updatedAttributeValues = new ArrayList<String>();
 
-            if (attribute.equalsIgnoreCase(EMAIL)) {
-                currentAttributeValues.add(userInfo.email);
-            } else if (attribute.equalsIgnoreCase(NAME)) {
-                currentAttributeValues.add(userInfo.name);
-            } else if (attribute.equalsIgnoreCase(SSN)) {
-                currentAttributeValues.add(userInfo.ssn);
-            }
+    //         if (attribute.equalsIgnoreCase(EMAIL)) {
+    //             currentAttributeValues.add(userInfo.email);
+    //         } else if (attribute.equalsIgnoreCase(NAME)) {
+    //             currentAttributeValues.add(userInfo.name);
+    //         } else if (attribute.equalsIgnoreCase(SSN)) {
+    //             currentAttributeValues.add(userInfo.ssn);
+    //         }
 
-            if (attributeValuesInContext == null) {
-                // attribute no longer sent by brokered idp, remove it
-                updatedAttributeValues.add("");
-            } else if (currentAttributeValues.size() < 1) {
-                // new attribute sent by brokered idp, add it
-                updatedAttributeValues = attributeValuesInContext;
-            } else if (!CollectionUtil.collectionEquals(attributeValuesInContext, currentAttributeValues)) {
-                // attribute sent by brokered idp has different values as before, update it
-                updatedAttributeValues = attributeValuesInContext;
-            }
+    //         if (attributeValuesInContext == null) {
+    //             // attribute no longer sent by brokered idp, remove it
+    //             updatedAttributeValues.add("");
+    //         } else if (currentAttributeValues.size() < 1) {
+    //             // new attribute sent by brokered idp, add it
+    //             updatedAttributeValues = attributeValuesInContext;
+    //         } else if (!CollectionUtil.collectionEquals(attributeValuesInContext, currentAttributeValues)) {
+    //             // attribute sent by brokered idp has different values as before, update it
+    //             updatedAttributeValues = attributeValuesInContext;
+    //         }
 
-            if (!CollectionUtil.collectionEquals(updatedAttributeValues, currentAttributeValues)) {
-                if (attribute.equalsIgnoreCase(EMAIL)) {
-                    userInfo.email = updatedAttributeValues.get(0);
-                } else if (attribute.equalsIgnoreCase(NAME)) {
-                    userInfo.name = updatedAttributeValues.get(0);
-                } else if (attribute.equalsIgnoreCase(SSN)) {
-                    userInfo.ssn = updatedAttributeValues.get(0);
-                }
-                // this.databaseAccess.updateUserInfo(conn, userId, userInfo);
-                logger.info("updateBrokeredUser: update user to AK: " + userInfo.agronodkontoId + " SSN: "
-                        + userInfo.ssn + " EMAIL: "
-                        + userInfo.email + " NAME: " + userInfo.name);
-            }
+    //         if (!CollectionUtil.collectionEquals(updatedAttributeValues, currentAttributeValues)) {
+    //             if (attribute.equalsIgnoreCase(EMAIL)) {
+    //                 userInfo.email = updatedAttributeValues.get(0);
+    //             } else if (attribute.equalsIgnoreCase(NAME)) {
+    //                 userInfo.name = updatedAttributeValues.get(0);
+    //             } else if (attribute.equalsIgnoreCase(SSN)) {
+    //                 userInfo.ssn = updatedAttributeValues.get(0);
+    //             }
+    //             // this.databaseAccess.updateUserInfo(conn, userId, userInfo);
+    //             logger.info("updateBrokeredUser: update user to AK: " + userInfo.agronodkontoId + " SSN: "
+    //                     + userInfo.ssn + " EMAIL: "
+    //                     + userInfo.email + " NAME: " + userInfo.name);
+    //         }
 
-        } catch (Exception e) {
-            logger.error("update broker user - failed", e, null, e);
-        }
-    }
+    //     } catch (Exception e) {
+    //         logger.error("update broker user - failed", e, null, e);
+    //     }
+    // }
 
     @Override
     public String getHelpText() {
