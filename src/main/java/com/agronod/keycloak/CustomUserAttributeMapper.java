@@ -12,7 +12,9 @@ import org.keycloak.dom.saml.v2.assertion.AttributeType;
 import org.keycloak.dom.saml.v2.metadata.AttributeConsumingServiceType;
 import org.keycloak.dom.saml.v2.metadata.EntityDescriptorType;
 import org.keycloak.dom.saml.v2.metadata.RequestedAttributeType;
+import org.keycloak.models.FederatedIdentityModel;
 import org.keycloak.models.IdentityProviderMapperModel;
+import org.keycloak.models.IdentityProviderModel;
 import org.keycloak.models.IdentityProviderSyncMode;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
@@ -166,15 +168,30 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
 
             try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
                 String userId = context.getId(); // username
-                // String sessionAuthenticatedUserId =
-                // context.getAuthenticationSession().getAuthenticatedUser().getId();
+
+                // All this to load the user Id...
+                IdentityProviderModel identityProviderConfig = context.getIdpConfig();
+                String providerId = identityProviderConfig.getAlias();
+                FederatedIdentityModel federatedIdentityModel = new FederatedIdentityModel(providerId, context.getId(),
+                        context.getUsername(), context.getToken());
+                UserModel user = session.users().getUserByFederatedIdentity(realm, federatedIdentityModel);
+
+                UserModel user2 = session.users().getUserById(realm,userId);
+
+                if (user != null) {
+                    logger.info("preprocessFederatedIdentity: user Id " + user.getId());
+                } else {
+                    logger.info("preprocessFederatedIdentity: user Id is NULL");
+                }
+
+                if (user2 != null) {
+                    logger.info("preprocessFederatedIdentity: user2 Id " + user2.getId());
+                } else {
+                    logger.info("preprocessFederatedIdentity: user2 Id is NULL");
+                }
 
                 logger.info("preprocessFederatedIdentity: username " + userId);
-                logger.info("preprocessFederatedIdentity: LegacyId " + context.getLegacyId());
                 logger.info("preprocessFederatedIdentity: BrokerUserId " + context.getBrokerUserId());
-                logger.info("preprocessFederatedIdentity: UserAttribute id " + context.getUserAttribute("id"));
-                // logger.info("preprocessFederatedIdentity: sessionAuthenticatedUserId" +
-                // sessionAuthenticatedUserId);
 
                 UserInfo userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
                 logger.info("Fetched anvandare name: " + userInfo.name);
