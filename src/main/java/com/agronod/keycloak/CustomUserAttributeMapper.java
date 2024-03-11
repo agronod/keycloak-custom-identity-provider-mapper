@@ -11,7 +11,9 @@ import org.keycloak.dom.saml.v2.assertion.AttributeType;
 import org.keycloak.dom.saml.v2.metadata.AttributeConsumingServiceType;
 import org.keycloak.dom.saml.v2.metadata.EntityDescriptorType;
 import org.keycloak.dom.saml.v2.metadata.RequestedAttributeType;
+import org.keycloak.models.FederatedIdentityModel;
 import org.keycloak.models.IdentityProviderMapperModel;
+import org.keycloak.models.IdentityProviderModel;
 import org.keycloak.models.IdentityProviderSyncMode;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.RealmModel;
@@ -20,22 +22,19 @@ import org.keycloak.protocol.saml.mappers.SamlMetadataDescriptorUpdater;
 import org.keycloak.provider.ProviderConfigProperty;
 import org.keycloak.saml.common.constants.JBossSAMLURIConstants;
 import org.keycloak.saml.common.util.StringUtil;
-import org.keycloak.common.util.CollectionUtil;
 
-import java.util.Objects;
 import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-import static org.keycloak.saml.common.constants.JBossSAMLURIConstants.ATTRIBUTE_FORMAT_BASIC;
-
 // To configure this in Terraform.
-// https://registry.terraform.io/providers/mrparkers/keycloak/latest/docs/resources/generic_protocol_mapper
+// https://registry.terraform.io/providers/mrparkers/keycloak/latest/docs/resources/custom_identity_provider_mapper
 
 //https://github.com/keycloak/keycloak/blob/main/services/src/main/java/org/keycloak/broker/saml/mappers/UserAttributeMapper.java
 public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper implements SamlMetadataDescriptorUpdater {
@@ -165,23 +164,164 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
             }
 
             try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
-                String userId = context.getId();
+                String brokerUserId = context.getId(); // username in Keycloak
 
-                UserInfo userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
-                logger.info("Fetched user Info name: " + userInfo.name);
+                // All this to load the user Id...
+                IdentityProviderModel identityProviderConfig = context.getIdpConfig();
+                String providerId = identityProviderConfig.getAlias();
+                FederatedIdentityModel federatedIdentityModel = new FederatedIdentityModel(providerId, context.getId(),
+                        context.getUsername(), context.getToken());
+                UserModel user = session.users().getUserByFederatedIdentity(realm, federatedIdentityModel);
 
-                if (attribute.equalsIgnoreCase(EMAIL)) {
-                    userInfo.email = attributeValuesInContext.get(0);
-                } else if (attribute.equalsIgnoreCase(NAME)) {
-                    userInfo.name = attributeValuesInContext.get(0);
-                } else if (attribute.equalsIgnoreCase(SSN)) {
-                    userInfo.ssn = attributeValuesInContext.get(0);
+                Anvandare userInfo = null;
+
+                if (user != null) {
+                    logger.info("preprocessFederatedIdentity: anvandare externtId " + user.getId());
+                    // Fetch if anvandare is fully created from our app
+                    userInfo = this.databaseAccess.fetchAnvandare(conn, user.getId());
+                } else {
+                    logger.info("preprocessFederatedIdentity: brokerId " + brokerUserId);
+                    // Fetch with brokerId. If we already created anvandare but not yet fully
+                    // created it from our app (then uses brokerId as temporary externalId)
+                    userInfo = this.databaseAccess.fetchAnvandare(conn, brokerUserId);
+                    if (userInfo.Id == null) {
+                        userInfo = new Anvandare("", "", "", brokerUserId, null, null);
+                    }
                 }
-                this.databaseAccess.updateUserInfo(conn, userId, userInfo);
 
+                logger.info("Fetched anvandare externtId: " + userInfo.externtId);
+
+                boolean changedData = false;
+                if (attribute.equalsIgnoreCase(SSN)
+                        && !userInfo.ssn.equalsIgnoreCase(attributeValuesInContext.get(0))) {
+                    userInfo.ssn = attributeValuesInContext.get(0);
+                    changedData = true;
+                }
+
+                if (changedData == true) {
+                    // Create or update anvandare
+                    this.databaseAccess.updateOrCreateAnvandare(conn, userInfo);
+                }
             } catch (Exception e) {
                 logger.error("preprocess broker user - failed", e, null, e);
             }
+        }
+    }
+
+    // @Override
+    // public void updateBrokeredUser(KeycloakSession session, RealmModel realm,
+    // UserModel user,
+    // IdentityProviderMapperModel mapperModel, BrokeredIdentityContext context) {
+
+    // String connectionString = mapperModel.getConfig().get("connectionstring");
+    // String maxPoolSize = mapperModel.getConfig().get("maxPoolSize");
+    // try {
+    // // Set correct driver
+    // Class.forName("org.postgresql.Driver");
+    // } catch (ClassNotFoundException e) {
+    // }
+
+    // String attribute = mapperModel.getConfig().get(USER_ATTRIBUTE);
+    // if (StringUtil.isNullOrEmpty(attribute)) {
+    // return;
+    // }
+
+    // try (Connection conn = DataSource.getConnection(connectionString,
+    // Integer.parseInt(maxPoolSize))) {
+    // String userId = user.getId();
+
+    // logger.info("updateBrokeredUser: userId" + userId);
+
+    // Anvandare userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
+    // logger.info("Fetched anvandare name: " + userInfo.name);
+
+    // String attributeName = getAttributeNameFromMapperModel(mapperModel);
+    // List<String> attributeValuesInContext =
+    // findAttributeValuesInContext(attributeName, context);
+
+    // List<String> currentAttributeValues = new ArrayList<String>();
+    // List<String> updatedAttributeValues = new ArrayList<String>();
+
+    // if (attribute.equalsIgnoreCase(EMAIL)) {
+    // currentAttributeValues.add(userInfo.email);
+    // } else if (attribute.equalsIgnoreCase(NAME)) {
+    // currentAttributeValues.add(userInfo.name);
+    // } else if (attribute.equalsIgnoreCase(SSN)) {
+    // currentAttributeValues.add(userInfo.ssn);
+    // }
+
+    // if (attributeValuesInContext == null) {
+    // // attribute no longer sent by brokered idp, remove it
+    // updatedAttributeValues.add("");
+    // } else if (currentAttributeValues.size() < 1) {
+    // // new attribute sent by brokered idp, add it
+    // updatedAttributeValues = attributeValuesInContext;
+    // } else if (!CollectionUtil.collectionEquals(attributeValuesInContext,
+    // currentAttributeValues)) {
+    // // attribute sent by brokered idp has different values as before, update it
+    // updatedAttributeValues = attributeValuesInContext;
+    // }
+
+    // if (!CollectionUtil.collectionEquals(updatedAttributeValues,
+    // currentAttributeValues)) {
+    // if (attribute.equalsIgnoreCase(EMAIL)) {
+    // userInfo.email = updatedAttributeValues.get(0);
+    // } else if (attribute.equalsIgnoreCase(NAME)) {
+    // userInfo.name = updatedAttributeValues.get(0);
+    // } else if (attribute.equalsIgnoreCase(SSN)) {
+    // userInfo.ssn = updatedAttributeValues.get(0);
+    // }
+    // // this.databaseAccess.updateUserInfo(conn, userId, userInfo);
+    // logger.info("updateBrokeredUser: update user to AK: " +
+    // userInfo.agronodkontoId + " SSN: "
+    // + userInfo.ssn + " EMAIL: "
+    // + userInfo.email + " NAME: " + userInfo.name);
+    // }
+
+    // } catch (Exception e) {
+    // logger.error("update broker user - failed", e, null, e);
+    // }
+    // }
+
+    @Override
+    public String getHelpText() {
+        return "Import declared saml attribute if it exists in assertion into the specified Agronod Användare column.";
+    }
+
+    // SamlMetadataDescriptorUpdater interface
+    @Override
+    public void updateMetadata(IdentityProviderMapperModel mapperModel, EntityDescriptorType entityDescriptor) {
+        String attributeName = mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME);
+        String attributeFriendlyName = mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_FRIENDLY_NAME);
+
+        RequestedAttributeType requestedAttribute = new RequestedAttributeType(attributeName);
+        requestedAttribute.setIsRequired(null);
+        requestedAttribute
+                .setNameFormat(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT) != null
+                        ? JBossSAMLURIConstants
+                                .valueOf(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT))
+                                .get()
+                        : JBossSAMLURIConstants.ATTRIBUTE_FORMAT_BASIC.get());
+
+        if (attributeFriendlyName != null && attributeFriendlyName.length() > 0)
+            requestedAttribute.setFriendlyName(attributeFriendlyName);
+
+        // Add the requestedAttribute item to any AttributeConsumingServices
+        for (EntityDescriptorType.EDTChoiceType choiceType : entityDescriptor.getChoiceType()) {
+            List<EntityDescriptorType.EDTDescriptorChoiceType> descriptors = choiceType.getDescriptors();
+            for (EntityDescriptorType.EDTDescriptorChoiceType descriptor : descriptors) {
+                for (AttributeConsumingServiceType attributeConsumingService : descriptor.getSpDescriptor()
+                        .getAttributeConsumingService()) {
+                    boolean alreadyPresent = attributeConsumingService.getRequestedAttribute().stream()
+                            .anyMatch(t -> (attributeName == null || attributeName.equalsIgnoreCase(t.getName())) &&
+                                    (attributeFriendlyName == null
+                                            || attributeFriendlyName.equalsIgnoreCase(t.getFriendlyName())));
+
+                    if (!alreadyPresent)
+                        attributeConsumingService.addRequestedAttribute(requestedAttribute);
+                }
+            }
+
         }
     }
 
@@ -213,109 +353,4 @@ public class CustomUserAttributeMapper extends AbstractIdentityProviderMapper im
                 .collect(Collectors.toList());
     }
 
-    @Override
-    public void updateBrokeredUser(KeycloakSession session, RealmModel realm, UserModel user,
-            IdentityProviderMapperModel mapperModel, BrokeredIdentityContext context) {
-
-        String connectionString = mapperModel.getConfig().get("connectionstring");
-        String maxPoolSize = mapperModel.getConfig().get("maxPoolSize");
-        try {
-            // Set correct driver
-            Class.forName("org.postgresql.Driver");
-        } catch (ClassNotFoundException e) {
-        }
-
-        String attribute = mapperModel.getConfig().get(USER_ATTRIBUTE);
-        if (StringUtil.isNullOrEmpty(attribute)) {
-            return;
-        }
-
-        try (Connection conn = DataSource.getConnection(connectionString, Integer.parseInt(maxPoolSize))) {
-            String userId = user.getId();
-
-            UserInfo userInfo = this.databaseAccess.fetchUserInfo(conn, userId);
-            logger.info("Fetched user Info name: " + userInfo.name);
-
-            String attributeName = getAttributeNameFromMapperModel(mapperModel);
-            List<String> attributeValuesInContext = findAttributeValuesInContext(attributeName, context);
-
-            List<String> currentAttributeValues = new ArrayList<String>();
-            List<String> updatedAttributeValues = new ArrayList<String>();
-
-            if (attribute.equalsIgnoreCase(EMAIL)) {
-                currentAttributeValues.add(userInfo.email);
-            } else if (attribute.equalsIgnoreCase(NAME)) {
-                currentAttributeValues.add(userInfo.name);
-            } else if (attribute.equalsIgnoreCase(SSN)) {
-                currentAttributeValues.add(userInfo.ssn);
-            }
-
-            if (attributeValuesInContext == null) {
-                // attribute no longer sent by brokered idp, remove it
-                updatedAttributeValues.add("");
-            } else if (currentAttributeValues.size() < 1) {
-                // new attribute sent by brokered idp, add it
-                updatedAttributeValues = attributeValuesInContext;
-            } else if (!CollectionUtil.collectionEquals(attributeValuesInContext, currentAttributeValues)) {
-                // attribute sent by brokered idp has different values as before, update it
-                updatedAttributeValues = attributeValuesInContext;
-            }
-
-            if (!CollectionUtil.collectionEquals(updatedAttributeValues, currentAttributeValues)) {
-                if (attribute.equalsIgnoreCase(EMAIL)) {
-                    userInfo.email = updatedAttributeValues.get(0);
-                } else if (attribute.equalsIgnoreCase(NAME)) {
-                    userInfo.name = updatedAttributeValues.get(0);
-                } else if (attribute.equalsIgnoreCase(SSN)) {
-                    userInfo.ssn = updatedAttributeValues.get(0);
-                }
-                this.databaseAccess.updateUserInfo(conn, userId, userInfo);
-            }
-
-        } catch (Exception e) {
-            logger.error("update broker user - failed", e, null, e);
-        }
-    }
-
-    @Override
-    public String getHelpText() {
-        return "Import declared saml attribute if it exists in assertion into the specified Agronod Användare column.";
-    }
-
-    // SamlMetadataDescriptorUpdater interface
-    @Override
-    public void updateMetadata(IdentityProviderMapperModel mapperModel, EntityDescriptorType entityDescriptor) {
-        String attributeName = mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME);
-        String attributeFriendlyName = mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_FRIENDLY_NAME);
-
-        RequestedAttributeType requestedAttribute = new RequestedAttributeType(attributeName);
-        requestedAttribute.setIsRequired(null);
-        requestedAttribute
-                .setNameFormat(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT) != null
-                        ? JBossSAMLURIConstants
-                                .valueOf(mapperModel.getConfig().get(CustomUserAttributeMapper.ATTRIBUTE_NAME_FORMAT))
-                                .get()
-                        : ATTRIBUTE_FORMAT_BASIC.get());
-
-        if (attributeFriendlyName != null && attributeFriendlyName.length() > 0)
-            requestedAttribute.setFriendlyName(attributeFriendlyName);
-
-        // Add the requestedAttribute item to any AttributeConsumingServices
-        for (EntityDescriptorType.EDTChoiceType choiceType : entityDescriptor.getChoiceType()) {
-            List<EntityDescriptorType.EDTDescriptorChoiceType> descriptors = choiceType.getDescriptors();
-            for (EntityDescriptorType.EDTDescriptorChoiceType descriptor : descriptors) {
-                for (AttributeConsumingServiceType attributeConsumingService : descriptor.getSpDescriptor()
-                        .getAttributeConsumingService()) {
-                    boolean alreadyPresent = attributeConsumingService.getRequestedAttribute().stream()
-                            .anyMatch(t -> (attributeName == null || attributeName.equalsIgnoreCase(t.getName())) &&
-                                    (attributeFriendlyName == null
-                                            || attributeFriendlyName.equalsIgnoreCase(t.getFriendlyName())));
-
-                    if (!alreadyPresent)
-                        attributeConsumingService.addRequestedAttribute(requestedAttribute);
-                }
-            }
-
-        }
-    }
 }
